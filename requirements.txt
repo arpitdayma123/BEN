@@ -10,3 +10,4 @@ gradio_imageslider
 gradio
 huggingface_hub
 GitPython
+spaces
