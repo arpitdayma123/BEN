@@ -1154,27 +1154,28 @@ def pil_images_to_mp4(images, output_path, fps=24, rgb_value=(0, 255, 0)):
         raise ValueError("No images provided to convert to MP4.")
 
     width, height = images[0].size
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Verified: mp4v is used.
     video_writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
-    for image in images:
-        # If image has alpha channel, composite onto the specified background color
-        if image.mode == 'RGBA':
-            # Create background image with specified RGB color
-            background = Image.new('RGB', image.size, rgb_value)
-            background = background.convert('RGBA')
-            # Composite the image onto the background
-            image = Image.alpha_composite(background, image)
-            image = image.convert('RGB')
-        else:
-            # Ensure RGB format for non-alpha images
-            image = image.convert('RGB')
+    try:
+        for image in images:
+            # If image has alpha channel, composite onto the specified background color
+            if image.mode == 'RGBA':
+                # Create background image with specified RGB color
+                background = Image.new('RGB', image.size, rgb_value)
+                background = background.convert('RGBA')
+                # Composite the image onto the background
+                image = Image.alpha_composite(background, image)
+                image = image.convert('RGB')
+            else:
+                # Ensure RGB format for non-alpha images
+                image = image.convert('RGB')
 
-        # Convert to OpenCV format and write
-        open_cv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-        video_writer.write(open_cv_image)
-    
-    video_writer.release()
+            # Convert to OpenCV format and write
+            open_cv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+            video_writer.write(open_cv_image)
+    finally:
+        video_writer.release()
 
 def pil_images_to_webm_alpha(images, output_path, fps=30):
     """
