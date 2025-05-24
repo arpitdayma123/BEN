@@ -6,6 +6,7 @@ from huggingface_hub import hf_hub_download
 import base64
 import tempfile
 import time
+import sys
 
 # Assuming ben_base.py is in the same directory or PYTHONPATH
 from ben_base import BEN_Base
@@ -30,10 +31,26 @@ def handler(event):
     tmp_video_path = None  # Initialize to ensure it's defined in finally block
 
     try:
-        video_url = event['input'].get('video_url')
+        job_input = event['input']
+        video_url = job_input.get('video_url')
         if not video_url:
             return {"error": "video_url not found in input"}
 
+        max_frames_input = job_input.get('max_frames')
+        max_frames_to_use = sys.maxsize  # Default to processing all frames
+
+        if max_frames_input is not None:
+            try:
+                max_frames_val = int(max_frames_input)
+                if max_frames_val > 0:
+                    max_frames_to_use = max_frames_val
+                # If max_frames_val is 0 or negative, it will default to sys.maxsize (all frames)
+                # A message for this case could be added if desired.
+            except ValueError:
+                # Non-integer input, default to sys.maxsize (all frames)
+                print(f"Invalid value for max_frames: {max_frames_input}. Defaulting to all frames.")
+        
+        print(f"Using max_frames: {max_frames_to_use if max_frames_to_use != sys.maxsize else 'all'}")
         print(f"Downloading video from: {video_url}")
         # Download the video using requests
         response = requests.get(video_url, stream=True)
@@ -56,7 +73,7 @@ def handler(event):
         print(f"Starting video segmentation. Input: {tmp_video_path}, Output dir: {output_directory}")
         # Process the video using the model
         # The segment_video method will save the output to "foreground.mp4" in output_directory
-        model.segment_video(video_path=tmp_video_path, output_path=output_directory)
+        model.segment_video(video_path=tmp_video_path, output_path=output_directory, max_frames=max_frames_to_use)
         print(f"Video segmentation completed. Expected output: {processed_video_path}")
 
         # Check if the processed video file exists
