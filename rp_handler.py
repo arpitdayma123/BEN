@@ -3,9 +3,10 @@ import torch
 import os
 import requests
 from huggingface_hub import hf_hub_download
-import base64
 import tempfile
 import time
+import sys
+import uuid
 
 # Assuming ben_base.py is in the same directory or PYTHONPATH
 from ben_base import BEN_Base
@@ -30,10 +31,26 @@ def handler(event):
     tmp_video_path = None  # Initialize to ensure it's defined in finally block
 
     try:
-        video_url = event['input'].get('video_url')
+        job_input = event['input']
+        video_url = job_input.get('video_url')
         if not video_url:
             return {"error": "video_url not found in input"}
 
+        max_frames_input = job_input.get('max_frames')
+        max_frames_to_use = sys.maxsize  # Default to processing all frames
+
+        if max_frames_input is not None:
+            try:
+                max_frames_val = int(max_frames_input)
+                if max_frames_val > 0:
+                    max_frames_to_use = max_frames_val
+                # If max_frames_val is 0 or negative, it will default to sys.maxsize (all frames)
+                # A message for this case could be added if desired.
+            except ValueError:
+                # Non-integer input, default to sys.maxsize (all frames)
+                print(f"Invalid value for max_frames: {max_frames_input}. Defaulting to all frames.")
+        
+        print(f"Using max_frames: {max_frames_to_use if max_frames_to_use != sys.maxsize else 'all'}")
         print(f"Downloading video from: {video_url}")
         # Download the video using requests
         response = requests.get(video_url, stream=True)
@@ -51,29 +68,48 @@ def handler(event):
         # The segment_video function in ben_base.py saves its output as foreground.mp4
         # in the specified output_path.
         output_directory = "./" 
+        # Define processed_video_path consistently. It's created by model.segment_video
         processed_video_path = os.path.join(output_directory, "foreground.mp4")
 
         print(f"Starting video segmentation. Input: {tmp_video_path}, Output dir: {output_directory}")
         # Process the video using the model
-        # The segment_video method will save the output to "foreground.mp4" in output_directory
-        model.segment_video(video_path=tmp_video_path, output_path=output_directory)
+        model.segment_video(video_path=tmp_video_path, output_path=output_directory, max_frames=max_frames_to_use)
         print(f"Video segmentation completed. Expected output: {processed_video_path}")
 
-        # Check if the processed video file exists
         if os.path.exists(processed_video_path):
-            print(f"Processed video found at: {processed_video_path}")
-            # Read the processed video file in binary mode
-            with open(processed_video_path, "rb") as video_file:
-                video_content = video_file.read()
+            print(f"Processed video found at: {processed_video_path}. Attempting upload to BunnyCDN.")
+            
+            unique_filename = f"{uuid.uuid4()}.mp4"
+            # Storage zone name is 'zockto' as per instruction
+            upload_url = f"https://storage.bunnycdn.com/zockto/videos/{unique_filename}"
+            # Access key as per instruction
+            access_key = "17e23633-2a7a-4d29-9450be4d6c8e-e01f-45f4" 
+            headers = {"AccessKey": access_key, "Content-Type": "video/mp4"}
 
-            # Encode the video content to base64
-            encoded_video = base64.b64encode(video_content).decode('utf-8')
-            print("Video encoded to base64.")
+            try:
+                with open(processed_video_path, 'rb') as f:
+                    video_data = f.read()
+                
+                print(f"Uploading {processed_video_path} to {upload_url}")
+                upload_response = requests.put(upload_url, data=video_data, headers=headers)
 
-            return {
-                "output_video_base64": encoded_video,
-                "message": "Video processed successfully"
-            }
+                if upload_response.status_code == 201:
+                    public_url = f"https://zockto.b-cdn.net/videos/{unique_filename}"
+                    print(f"Video uploaded successfully. Public URL: {public_url}")
+                    return {
+                        "output_video_url": public_url,
+                        "message": "Video processed and uploaded successfully to BunnyCDN."
+                    }
+                else:
+                    print(f"Failed to upload video to BunnyCDN. Status: {upload_response.status_code}, Details: {upload_response.text}")
+                    return {
+                        "error": "Failed to upload video to BunnyCDN.",
+                        "status_code": upload_response.status_code,
+                        "details": upload_response.text
+                    }
+            except Exception as upload_exc:
+                print(f"Exception during BunnyCDN upload: {upload_exc}")
+                return {"error": f"Exception during BunnyCDN upload: {upload_exc}"}
         else:
             print(f"Error: Processed video not found at {processed_video_path}")
             # List files in output_directory for debugging
@@ -81,10 +117,10 @@ def handler(event):
                 print(f"Contents of {output_directory}: {os.listdir(output_directory)}")
             else:
                 print(f"Output directory {output_directory} does not exist.")
-            return {"error": f"Processed video not found at {processed_video_path}"}
+            return {"error": f"Processed video file not found at {processed_video_path}."} # Added period for consistency
 
     except requests.exceptions.RequestException as e:
-        print(f"Error downloading video: {e}")
+        print(f"Error downloading video or during BunnyCDN upload: {e}")
         return {"error": f"Error downloading video: {e}"}
     except Exception as e:
         print(f"An error occurred: {e}")
@@ -99,14 +135,17 @@ def handler(event):
                 print(f"Error cleaning up temporary input file {tmp_video_path}: {e}")
         
         # Clean up: remove the processed video file (foreground.mp4)
-        # This path is defined based on where segment_video saves its output
-        final_processed_video_path = os.path.join("./", "foreground.mp4")
-        if os.path.exists(final_processed_video_path):
+        # This path is defined based on where segment_video saves its output.
+        # Ensure this variable is defined if it wasn't earlier in the try block (e.g. if input video download failed)
+        # However, in current logic, processed_video_path is defined before try-except for upload.
+        # This should be os.path.join("./", "foreground.mp4")
+        processed_video_to_cleanup = os.path.join("./", "foreground.mp4") 
+        if os.path.exists(processed_video_to_cleanup):
             try:
-                os.remove(final_processed_video_path)
-                print(f"Cleaned up processed video file: {final_processed_video_path}")
+                os.remove(processed_video_to_cleanup)
+                print(f"Cleaned up processed video file: {processed_video_to_cleanup}")
             except Exception as e:
-                print(f"Error cleaning up processed video file {final_processed_video_path}: {e}")
+                print(f"Error cleaning up processed video file {processed_video_to_cleanup}: {e}")
 
 
 # Standard RunPod boilerplate
