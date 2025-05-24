@@ -1243,15 +1243,15 @@ def add_audio_to_video(video_without_audio_path, original_video_path, output_pat
     muxed_output_path = os.path.join(os.path.dirname(video_without_audio_path), temp_mux_filename)
 
     # 2) If audio found, run ffmpeg to add it to the temporary file
-    command = [
-        'ffmpeg', '-y',
-        '-i', video_without_audio_path,  # Input: video-only
-        '-i', original_video_path,       # Input: original video (for audio)
-        '-c', 'copy',                    # Copy codecs (both video and audio)
-        '-map', '0:v:0',                 # Map video from first input
-        '-map', '1:a:0',                 # Map audio from second input
-        muxed_output_path                # Output to temporary file
-    ]
+    command = ['ffmpeg', '-y', 
+               '-i', video_without_audio_path, 
+               '-i', original_video_path, 
+               '-c:v', 'copy', 
+               '-c:a', 'copy', 
+               '-map', '0:v:0', 
+               '-map', '1:a:0?', # Makes mapping audio optional, ffmpeg won't fail if original has no audio
+               '-shortest', 
+               muxed_output_path]
     
     # Run ffmpeg, check=False to handle errors manually
     ffmpeg_result = subprocess.run(command, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
