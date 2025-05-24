@@ -11,3 +11,5 @@ gradio
 huggingface_hub
 GitPython
 spaces
+runpod
+requests
