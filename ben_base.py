@@ -1233,21 +1233,53 @@ def add_audio_to_video(video_without_audio_path, original_video_path, output_pat
     # result.stdout is empty if no audio stream found
     if not result.stdout.strip():
         print("No audio track found in original video, skipping audio addition.")
-        return
+        return # Original video_without_audio_path will be used as is.
     
     print("Audio track detected; proceeding to mux audio.")
-    # 2) If audio found, run ffmpeg to add it
+    
+    # Define a temporary path for the muxed output
+    # output_path is the same as video_without_audio_path in the current calling context
+    temp_mux_filename = "foreground_muxed_temp.mp4"
+    muxed_output_path = os.path.join(os.path.dirname(video_without_audio_path), temp_mux_filename)
+
+    # 2) If audio found, run ffmpeg to add it to the temporary file
     command = [
         'ffmpeg', '-y',
-        '-i', video_without_audio_path,
-        '-i', original_video_path,
-        '-c', 'copy',
-        '-map', '0:v:0',
-        '-map', '1:a:0',  # we know there's an audio track now
-        output_path
+        '-i', video_without_audio_path,  # Input: video-only
+        '-i', original_video_path,       # Input: original video (for audio)
+        '-c', 'copy',                    # Copy codecs (both video and audio)
+        '-map', '0:v:0',                 # Map video from first input
+        '-map', '1:a:0',                 # Map audio from second input
+        muxed_output_path                # Output to temporary file
     ]
-    subprocess.run(command, check=True)
-    print(f"Audio added successfully => {output_path}")
+    
+    # Run ffmpeg, check=False to handle errors manually
+    ffmpeg_result = subprocess.run(command, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+    if ffmpeg_result.returncode == 0:
+        print("FFmpeg audio muxing successful.")
+        try:
+            os.remove(video_without_audio_path)
+            os.rename(muxed_output_path, video_without_audio_path) # Rename temp to the target path
+            print(f"Successfully muxed audio and replaced original video-only file with: {video_without_audio_path}")
+        except OSError as e:
+            print(f"Error during file operations (remove/rename): {e}. Video may be at {muxed_output_path}")
+            # If rename failed, try to remove the temp file if it's different from target
+            if os.path.exists(muxed_output_path) and muxed_output_path != video_without_audio_path :
+                try:
+                    os.remove(muxed_output_path)
+                    print(f"Cleaned up temporary muxed file: {muxed_output_path}")
+                except OSError as e_clean:
+                    print(f"Error cleaning up temporary muxed file {muxed_output_path}: {e_clean}")
+    else:
+        # FFmpeg command failed
+        print(f"Audio muxing with ffmpeg failed. Proceeding with video-only file. Error: {ffmpeg_result.stderr}")
+        if os.path.exists(muxed_output_path):
+            try:
+                os.remove(muxed_output_path)
+                print(f"Cleaned up temporary muxed file: {muxed_output_path}")
+            except OSError as e:
+                print(f"Error cleaning up failed mux attempt {muxed_output_path}: {e}")
 
 
 
