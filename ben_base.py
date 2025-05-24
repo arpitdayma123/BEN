@@ -1105,15 +1105,8 @@ class BEN_Base(nn.Module):
             fg_output = os.path.join(output_path, 'foreground.mp4')
             pil_images_to_mp4(foregrounds, fg_output, fps=original_fps, rgb_value=rgb_value)
             cv2.destroyAllWindows()
-            
-            try:
-                fg_audio_output = os.path.join(output_path, 'foreground.mp4')
-                add_audio_to_video(fg_output, video_path, fg_audio_output)
-            except Exception as e:
-                print("No audio found in the original video")
-                print(e)
-
-            
+            # Audio processing (call to add_audio_to_video and its try-except block) has been removed.
+            # fg_output from pil_images_to_mp4 is now the final output if not webm.
 
 
 
@@ -1215,75 +1208,6 @@ def pil_images_to_webm_alpha(images, output_path, fps=30):
         subprocess.run(ffmpeg_cmd, check=True)
 
     print(f"WebM with alpha saved to {output_path}")
-
-def add_audio_to_video(video_without_audio_path, original_video_path, output_path):
-    """
-    Check if the original video has an audio stream. If yes, add it. If not, skip.
-    """
-    # 1) Probe original video for audio streams
-    probe_command = [
-        'ffprobe', '-v', 'error', 
-        '-select_streams', 'a:0', 
-        '-show_entries', 'stream=index', 
-        '-of', 'csv=p=0', 
-        original_video_path
-    ]
-    result = subprocess.run(probe_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
-    # result.stdout is empty if no audio stream found
-    if not result.stdout.strip():
-        print("No audio track found in original video, skipping audio addition.")
-        return # Original video_without_audio_path will be used as is.
-    
-    print("Audio track detected; proceeding to mux audio.")
-    
-    # Define a temporary path for the muxed output
-    # output_path is the same as video_without_audio_path in the current calling context
-    temp_mux_filename = "foreground_muxed_temp.mp4"
-    muxed_output_path = os.path.join(os.path.dirname(video_without_audio_path), temp_mux_filename)
-
-    # 2) If audio found, run ffmpeg to add it to the temporary file
-    command = ['ffmpeg', '-y', 
-               '-i', video_without_audio_path, 
-               '-i', original_video_path, 
-               '-c:v', 'copy', 
-               '-c:a', 'copy', 
-               '-map', '0:v:0', 
-               '-map', '1:a:0?', # Makes mapping audio optional, ffmpeg won't fail if original has no audio
-               '-shortest', 
-               muxed_output_path]
-    
-    # Run ffmpeg, check=False to handle errors manually
-    ffmpeg_result = subprocess.run(command, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
-    if ffmpeg_result.returncode == 0:
-        print("FFmpeg audio muxing successful.")
-        try:
-            os.remove(video_without_audio_path)
-            os.rename(muxed_output_path, video_without_audio_path) # Rename temp to the target path
-            print(f"Successfully muxed audio and replaced original video-only file with: {video_without_audio_path}")
-        except OSError as e:
-            print(f"Error during file operations (remove/rename): {e}. Video may be at {muxed_output_path}")
-            # If rename failed, try to remove the temp file if it's different from target
-            if os.path.exists(muxed_output_path) and muxed_output_path != video_without_audio_path :
-                try:
-                    os.remove(muxed_output_path)
-                    print(f"Cleaned up temporary muxed file: {muxed_output_path}")
-                except OSError as e_clean:
-                    print(f"Error cleaning up temporary muxed file {muxed_output_path}: {e_clean}")
-    else:
-        # FFmpeg command failed
-        print(f"Audio muxing with ffmpeg failed. Proceeding with video-only file. Error: {ffmpeg_result.stderr}")
-        if os.path.exists(muxed_output_path):
-            try:
-                os.remove(muxed_output_path)
-                print(f"Cleaned up temporary muxed file: {muxed_output_path}")
-            except OSError as e:
-                print(f"Error cleaning up failed mux attempt {muxed_output_path}: {e}")
-
-
-
-
 
 ### Thanks to the source: https://huggingface.co/ZhengPeng7/BiRefNet/blob/main/handler.py
 def refine_foreground_process(image, mask, r=90):
